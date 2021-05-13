@@ -4,3 +4,4 @@ numpy
 wget
 argparse
 dask
+fsspec
