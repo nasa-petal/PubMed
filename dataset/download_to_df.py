@@ -15,8 +15,10 @@ import numpy as np
 import os
 import wget
 import argparse
+import sys
 from typing import List
 import glob
+
 
 def get_args_parser():
     """Creates arguments that this main python file accepts
@@ -31,13 +33,18 @@ def get_args_parser():
         else:
             raise argparse.ArgumentTypeError('Boolean value expected.')
     parser = argparse.ArgumentParser('PubMedDownload', add_help=True)
-    parser.add_argument('--download', default=True, type=bool,help='Download files from pubmed')    
-    parser.add_argument('--num_files', default=-1, type=int,help='How many pubmed files to download -1 for all files')
-    parser.add_argument('--save_directory',default='pubmedfiles',type=str, help='folder where to save pubmed files')
-    parser.add_argument('--should_pickle', default=True, type=bool,help='Create a dataframe and save it to a pickle file') 
+    parser.add_argument('-d', '--download', default=True, type=str2bool,
+                        help='Download files from pubmed')
+    parser.add_argument('-n', '--num_files', default=-1, type=int,
+                        help='How many pubmed files to download -1 for all files')
+    parser.add_argument('-s', '--save_directory', default='pubmedfiles',
+                        type=str, help='folder where to save pubmed files')
+    parser.add_argument('-p', '--should_pickle', default=True, type=bool,
+                        help='Create a dataframe and save it to a pickle file')
     return parser
 
-def download_files(num_files:int, save_directory:str):
+
+def download_files(num_files: int, save_directory: str):
     """Downloads the files and saves it to a directory 
 
     Args:
@@ -47,8 +54,8 @@ def download_files(num_files:int, save_directory:str):
     Returns:
         List[str]: paths where download is saved
     """
-    os.makedirs(save_directory,exist_ok=True)
-    
+    os.makedirs(save_directory, exist_ok=True)
+
     headers = {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET',
@@ -86,7 +93,8 @@ def download_files(num_files:int, save_directory:str):
 
 # Handle formatting of more complicated data based on tags
 
-def extract_date(elem, dict_name:str):
+
+def extract_date(elem, dict_name: str):
     """Extracts the date from an xml element
 
     Args:
@@ -196,7 +204,7 @@ def handle_tag_extraction(elem):
 # Open gzipped files and parse XML files then finally store data into dataframe
 
 
-def scan_files(download_paths:List[str]):
+def scan_files(download_paths: List[str]):
     """Scans the downloaded files and processes
 
     Args:
@@ -245,20 +253,34 @@ def run_downloader(args: argparse.ArgumentParser):
     Args:
         args (argparse.ArgumentParser): Argument options to parse
     """
-    # if (args.download):
-    #     num_files = args.num_files 
-    #     download_paths = download_files(args.num_files,args.save_directory)
+    data_frame = pd.DataFrame()
+
+    if (args.download):
+        print("Downloading files...")
+        num_files = args.num_files
+        download_paths = download_files(args.num_files, args.save_directory)
 
     if (args.num_files):
-        download_paths = list(glob.glob(os.path.join(args.save_directory,"*.gz")))
+        download_paths = list(
+            glob.glob(os.path.join(args.save_directory, "*.gz")))
         print(download_paths)
         if(len(download_paths) != 0):
             print("Parsing Files...")
             data_frame = scan_files(download_paths)
+            os.makedirs("parsed-CSV", exist_ok=True)
+            data_frame.to_csv("parsed-CSV/pubMed.csv")
 
     if (args.should_pickle):
-        os.makedirs('pickle',exist_ok=True)
+        print("Pickling files...")
+        os.makedirs('pickle', exist_ok=True)
+        if (data_frame.empty):
+            try:
+                data_frame = pd.read_csv("parsed-CSV/pubMed.csv")
+            except FileNotFoundError:
+                print("Did not find directory/file ./parsed-CSV/pubMed.csv")
+                sys.exit()
         data_frame.to_pickle("pickle/pickled_data.pkl")
+
 
 if __name__ == "__main__":
     parser = get_args_parser()
