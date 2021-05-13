@@ -171,13 +171,20 @@ def handle_tag_extraction(elem):
         elem ([type]): [description]
 
     Returns:
-        [type]: [description]
+        tuple containing:
+            dictionary or array of dictionaries: containing tag category and tag text,
+            boolean: stating whether or not we are returning an array of dictionaries
+
     """
     tag = elem.tag
 
-    if (tag == "abstract"):
+    if (tag == "Abstract"):
         abstract_text = {"AbstractText": elem.find("AbstractText").text}
         return (abstract_text, False)
+
+    elif (tag == "ArticleTitle"):
+        title = {"ArticleTitle": elem.text}
+        return (title, False)
 
     elif (tag == "DateCompleted"):
         if (elem.find("Year") == None or elem.find("Year").text == None):
@@ -232,7 +239,7 @@ def scan_files(download_paths: List[str]):
                     temp_object.clear()
                     root.clear()
 
-                if event == "start" and elem != None and len(list(elem)):
+                if event == "start" and elem != None and (len(list(elem)) or elem.text):
                     extraction_results = handle_tag_extraction(elem)
 
                     if (extraction_results != None):
