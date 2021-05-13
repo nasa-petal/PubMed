@@ -139,3 +139,5 @@ dmypy.json
 
 # nohup
 nohup.out
+
+test-clm/

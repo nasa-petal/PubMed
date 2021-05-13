@@ -7,6 +7,8 @@ Downloads all the pubmed data files and creates and pickles a dataframe
 
 from bs4 import BeautifulSoup
 import os
+from dask.dataframe.io.io import from_pandas
+from pandas.core.frame import DataFrame
 import requests
 import gzip
 import xml.etree.ElementTree as ET
@@ -18,7 +20,9 @@ import argparse
 import sys
 from typing import List
 import glob
-
+from tqdm import tqdm
+from concurrent.futures import ProcessPoolExecutor, process
+import dask.dataframe as dd
 
 def get_args_parser():
     """Creates arguments that this main python file accepts
@@ -33,7 +37,7 @@ def get_args_parser():
         else:
             raise argparse.ArgumentTypeError('Boolean value expected.')
     parser = argparse.ArgumentParser('PubMedDownload', add_help=True)
-    parser.add_argument('-d', '--download', default=True, type=str2bool,
+    parser.add_argument('-d', '--download', default=False, type=str2bool,
                         help='Download files from pubmed')
     parser.add_argument('-n', '--num_files', default=-1, type=int,
                         help='How many pubmed files to download -1 for all files')
@@ -41,6 +45,8 @@ def get_args_parser():
                         type=str, help='folder where to save pubmed files')
     parser.add_argument('-p', '--should_pickle', default=True, type=str2bool,
                         help='Create a dataframe and save it to a pickle file')
+    parser.add_argument('-c', '--n_cpu', default=16, type=int,
+                        help='Number of cpus to use when creating the pickled dataframe')
     return parser
 
 
@@ -203,8 +209,33 @@ def handle_tag_extraction(elem):
 
 # Open gzipped files and parse XML files then finally store data into dataframe
 
+def extract_tags_from_gz(path:str):
+    temp_array = list()
+    temp_object = dict()
+    with gzip.open(path, "r") as xml_file:
+        context = ET.iterparse(xml_file, events=("start", "end"))
+        for index, (event, elem) in enumerate(context):
+            # Get the root element.
+            if index == 0:
+                root = elem
 
-def scan_files(download_paths: List[str]):
+            if event == "end" and elem.tag == "PubmedArticle":
+                temp_array.append(temp_object.copy())
+                temp_object.clear()
+                root.clear()
+
+            if event == "start" and elem != None and len(list(elem)):
+                extraction_results = handle_tag_extraction(elem)
+
+                if (extraction_results != None):
+                    if (extraction_results[1]):
+                        for unpacked_dict in extraction_results[0]:
+                            temp_object.update(unpacked_dict)
+                    else:
+                        temp_object.update(extraction_results[0])
+    return pd.DataFrame(temp_array)
+
+def scan_files(download_paths: List[str],n_cpu:int=16):
     """Scans the downloaded files and processes
 
     Args:
@@ -213,38 +244,14 @@ def scan_files(download_paths: List[str]):
     Returns:
         [type]: [description]
     """
-    temp_array = []
-    paper_count = 0
-    total_papers = len(download_paths)
-    for path in download_paths:
-        print("{}/{}".format(paper_count+1, total_papers))
-        temp_object = {}
-        with gzip.open(path, "r") as xml_file:
-            context = ET.iterparse(xml_file, events=("start", "end"))
-
-            for index, (event, elem) in enumerate(context):
-                # Get the root element.
-                if index == 0:
-                    root = elem
-
-                if event == "end" and elem.tag == "PubmedArticle":
-                    temp_array.append(temp_object.copy())
-                    temp_object.clear()
-                    root.clear()
-
-                if event == "start" and elem != None and len(list(elem)):
-                    extraction_results = handle_tag_extraction(elem)
-
-                    if (extraction_results != None):
-                        if (extraction_results[1]):
-                            for unpacked_dict in extraction_results[0]:
-                                temp_object.update(unpacked_dict)
-                        else:
-                            temp_object.update(extraction_results[0])
-        paper_count += 1
-
-    return pd.DataFrame(temp_array)
-
+    processed_data= None
+    tqdm.pandas()
+    with ProcessPoolExecutor(max_workers=n_cpu) as executor:
+        processed_data = list(tqdm(executor.map(extract_tags_from_gz, download_paths, timeout=None,chunksize=2),
+                            desc=f"Processing {len(download_paths)} examples on {n_cpu} cores",
+                            total=len(download_paths)))
+    dataframe = dd.concat(processed_data)
+    return dataframe
 
 # Main program
 def run_downloader(args: argparse.ArgumentParser):
@@ -266,20 +273,20 @@ def run_downloader(args: argparse.ArgumentParser):
         print(download_paths)
         if(len(download_paths) != 0):
             print("Parsing Files...")
-            data_frame = scan_files(download_paths)
+            data_frame = scan_files(download_paths,args.n_cpu)
             os.makedirs("parsed-CSV", exist_ok=True)
             data_frame.to_csv("parsed-CSV/pubMed.csv")
 
     if (args.should_pickle):
         print("Pickling files...")
-        os.makedirs('pickle', exist_ok=True)
+        os.makedirs('parquet', exist_ok=True)
         if (data_frame.empty):
             try:
-                data_frame = pd.read_csv("parsed-CSV/pubMed.csv")
+                data_frame = dd.read_csv("parsed-CSV/pubMed.csv")
             except FileNotFoundError:
                 print("Did not find directory/file ./parsed-CSV/pubMed.csv")
                 sys.exit()
-        data_frame.to_pickle("pickle/pickled_data.pkl")
+        data_frame.to_parquet("parquet/")
 
 
 if __name__ == "__main__":
