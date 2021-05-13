@@ -7,6 +7,8 @@ Downloads all the pubmed data files and creates and pickles a dataframe
 
 from bs4 import BeautifulSoup
 import os
+from dask.dataframe.io.io import from_pandas
+from pandas.core.frame import DataFrame
 import requests
 import gzip
 import xml.etree.ElementTree as ET
@@ -19,7 +21,8 @@ import sys
 from typing import List
 import glob
 from tqdm import tqdm
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, process
+import dask.dataframe as dd
 
 def get_args_parser():
     """Creates arguments that this main python file accepts
@@ -34,7 +37,7 @@ def get_args_parser():
         else:
             raise argparse.ArgumentTypeError('Boolean value expected.')
     parser = argparse.ArgumentParser('PubMedDownload', add_help=True)
-    parser.add_argument('-d', '--download', default=True, type=str2bool,
+    parser.add_argument('-d', '--download', default=False, type=str2bool,
                         help='Download files from pubmed')
     parser.add_argument('-n', '--num_files', default=-1, type=int,
                         help='How many pubmed files to download -1 for all files')
@@ -211,7 +214,6 @@ def extract_tags_from_gz(path:str):
     temp_object = dict()
     with gzip.open(path, "r") as xml_file:
         context = ET.iterparse(xml_file, events=("start", "end"))
-
         for index, (event, elem) in enumerate(context):
             # Get the root element.
             if index == 0:
@@ -231,7 +233,7 @@ def extract_tags_from_gz(path:str):
                             temp_object.update(unpacked_dict)
                     else:
                         temp_object.update(extraction_results[0])
-    return temp_array
+    return pd.DataFrame(temp_array)
 
 def scan_files(download_paths: List[str],n_cpu:int=16):
     """Scans the downloaded files and processes
@@ -245,13 +247,11 @@ def scan_files(download_paths: List[str],n_cpu:int=16):
     processed_data= None
     tqdm.pandas()
     with ProcessPoolExecutor(max_workers=n_cpu) as executor:
-        processed_data = list(
-            tqdm(executor.map(extract_tags_from_gz, download_paths, timeout=None,chunksize=2),
-                    desc=f"Processing {len(download_paths)} examples on {n_cpu} cores",
-                    total=len(download_paths)))
-
-    return pd.DataFrame(processed_data)
-
+        processed_data = list(tqdm(executor.map(extract_tags_from_gz, download_paths, timeout=None,chunksize=2),
+                            desc=f"Processing {len(download_paths)} examples on {n_cpu} cores",
+                            total=len(download_paths)))
+    dataframe = dd.concat(processed_data)
+    return dataframe
 
 # Main program
 def run_downloader(args: argparse.ArgumentParser):
@@ -279,14 +279,14 @@ def run_downloader(args: argparse.ArgumentParser):
 
     if (args.should_pickle):
         print("Pickling files...")
-        os.makedirs('pickle', exist_ok=True)
+        os.makedirs('parquet', exist_ok=True)
         if (data_frame.empty):
             try:
-                data_frame = pd.read_csv("parsed-CSV/pubMed.csv")
+                data_frame = dd.read_csv("parsed-CSV/pubMed.csv")
             except FileNotFoundError:
                 print("Did not find directory/file ./parsed-CSV/pubMed.csv")
                 sys.exit()
-        data_frame.to_pickle("pickle/pickled_data.pkl")
+        data_frame.to_parquet("parquet/")
 
 
 if __name__ == "__main__":
