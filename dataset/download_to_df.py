@@ -39,7 +39,7 @@ def get_args_parser():
                         help='How many pubmed files to download -1 for all files')
     parser.add_argument('-s', '--save_directory', default='pubmedfiles',
                         type=str, help='folder where to save pubmed files')
-    parser.add_argument('-p', '--should_pickle', default=True, type=bool,
+    parser.add_argument('-p', '--should_pickle', default=True, type=str2bool,
                         help='Create a dataframe and save it to a pickle file')
     return parser
 
