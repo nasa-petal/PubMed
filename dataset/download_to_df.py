@@ -284,7 +284,6 @@ def run_downloader(args: argparse.ArgumentParser):
     if (args.num_files):
         download_paths = list(
             glob.glob(os.path.join(args.save_directory, "*.gz")))
-        print(download_paths)
         if(len(download_paths) != 0):
             print("Parsing Files...")
             data_frame = scan_files(download_paths, args.n_cpu)
@@ -301,7 +300,6 @@ def run_downloader(args: argparse.ArgumentParser):
             except FileNotFoundError:
                 print("Did not find directory/file ./parsed-CSV/pubMed.csv")
                 sys.exit()
-        print(data_frame.columns)
         dd.to_parquet(data_frame, "parquet/")
 
 
