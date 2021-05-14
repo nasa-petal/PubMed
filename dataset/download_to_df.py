@@ -262,7 +262,10 @@ def scan_files(download_paths: List[str], n_cpu: int = 16):
         processed_data = list(tqdm(executor.map(extract_tags_from_gz, download_paths, timeout=None, chunksize=2),
                                    desc=f"Processing {len(download_paths)} examples on {n_cpu} cores",
                                    total=len(download_paths)))
-    dataframe = dd.concat(processed_data)
+    if(len(processed_data) > 1):
+        dataframe = dd.concat(processed_data)
+    else:
+        dataframe = dd.from_pandas(processed_data[0], 1)
     return dataframe
 
 # Main program
@@ -296,11 +299,11 @@ def run_downloader(args: argparse.ArgumentParser):
         if (len(data_frame.columns) == 0):
             try:
                 data_frame = dd.read_csv(
-                    "parsed-CSV/pubMed*.csv", dtype={"mid": "object", "pubmed": "float64"})
+                    "parsed-CSV/pubMed*.csv", dtype={"mid": "string", "pubmed": "float64"})
             except FileNotFoundError:
                 print("Did not find directory/file ./parsed-CSV/pubMed.csv")
                 sys.exit()
-        dd.to_parquet(data_frame, "parquet/")
+        data_frame.to_parquet("parquet/")
 
 
 if __name__ == "__main__":
