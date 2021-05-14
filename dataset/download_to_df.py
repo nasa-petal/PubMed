@@ -45,7 +45,7 @@ def get_args_parser():
                         type=str, help='folder where to save pubmed files')
     parser.add_argument('-p', '--should_pickle', default=True, type=str2bool,
                         help='Create a dataframe and save it to a pickle file')
-    parser.add_argument('-c', '--n_cpu', default=16, type=int,
+    parser.add_argument('-c', '--n_cpu', default=1, type=int,
                         help='Number of cpus to use when creating the pickled dataframe')
     return parser
 
@@ -233,7 +233,8 @@ def extract_tags_from_gz(path:str):
                             temp_object.update(unpacked_dict)
                     else:
                         temp_object.update(extraction_results[0])
-    return pd.DataFrame(temp_array)
+    df = pd.DataFrame(temp_array)
+    return df
 
 def scan_files(download_paths: List[str],n_cpu:int=16):
     """Scans the downloaded files and processes
@@ -250,7 +251,7 @@ def scan_files(download_paths: List[str],n_cpu:int=16):
         processed_data = list(tqdm(executor.map(extract_tags_from_gz, download_paths, timeout=None,chunksize=2),
                             desc=f"Processing {len(download_paths)} examples on {n_cpu} cores",
                             total=len(download_paths)))
-    dataframe = dd.concat(processed_data)
+    dataframe = pd.concat(processed_data)
     return dataframe
 
 # Main program
@@ -264,7 +265,6 @@ def run_downloader(args: argparse.ArgumentParser):
 
     if (args.download):
         print("Downloading files...")
-        num_files = args.num_files
         download_paths = download_files(args.num_files, args.save_directory)
 
     if (args.num_files):
@@ -273,7 +273,7 @@ def run_downloader(args: argparse.ArgumentParser):
         print(download_paths)
         if(len(download_paths) != 0):
             print("Parsing Files...")
-            data_frame = scan_files(download_paths,args.n_cpu)
+            data_frame = scan_files(download_paths[:5],args.n_cpu)
             os.makedirs("parsed-CSV", exist_ok=True)
             data_frame.to_csv("parsed-CSV/pubMed.csv")
 
@@ -286,7 +286,7 @@ def run_downloader(args: argparse.ArgumentParser):
             except FileNotFoundError:
                 print("Did not find directory/file ./parsed-CSV/pubMed.csv")
                 sys.exit()
-        data_frame.to_parquet("parquet/")
+        data_frame.to_parquet("parquet/pubmed_parquet")
 
 
 if __name__ == "__main__":
