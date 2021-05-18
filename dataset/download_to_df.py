@@ -24,6 +24,7 @@ from tqdm import tqdm
 from concurrent.futures import ProcessPoolExecutor, process
 import dask.dataframe as dd
 
+
 def get_args_parser():
     """Creates arguments that this main python file accepts
     """
@@ -165,6 +166,8 @@ def extract_mesh_headings(elem):
             mesh_heading_list["MeshHeadingList"][current_mesh_heading]["QualifierNames"] = \
                 ", ".join(current_qualifiers)
 
+    mesh_heading_list.update(
+        {"MeshHeadingList": str(mesh_heading_list["MeshHeadingList"])})
     return (mesh_heading_list, False)
 
 # Handle data processing based on tag type
@@ -177,13 +180,20 @@ def handle_tag_extraction(elem):
         elem ([type]): [description]
 
     Returns:
-        [type]: [description]
+        tuple containing:
+            dictionary or array of dictionaries: containing tag category and tag text,
+            boolean: stating whether or not we are returning an array of dictionaries
+
     """
     tag = elem.tag
 
-    if (tag == "abstract"):
+    if (tag == "Abstract"):
         abstract_text = {"AbstractText": elem.find("AbstractText").text}
         return (abstract_text, False)
+
+    elif (tag == "ArticleTitle"):
+        title = {"ArticleTitle": elem.text}
+        return (title, False)
 
     elif (tag == "DateCompleted"):
         if (elem.find("Year") == None or elem.find("Year").text == None):
@@ -209,7 +219,8 @@ def handle_tag_extraction(elem):
 
 # Open gzipped files and parse XML files then finally store data into dataframe
 
-def extract_tags_from_gz(path:str):
+
+def extract_tags_from_gz(path: str):
     temp_array = list()
     temp_object = dict()
     with gzip.open(path, "r") as xml_file:
@@ -224,7 +235,7 @@ def extract_tags_from_gz(path:str):
                 temp_object.clear()
                 root.clear()
 
-            if event == "start" and elem != None and len(list(elem)):
+            if event == "start" and elem != None and (len(list(elem)) or elem.text):
                 extraction_results = handle_tag_extraction(elem)
 
                 if (extraction_results != None):
@@ -235,7 +246,8 @@ def extract_tags_from_gz(path:str):
                         temp_object.update(extraction_results[0])
     return pd.DataFrame(temp_array)
 
-def scan_files(download_paths: List[str],n_cpu:int=16):
+
+def scan_files(download_paths: List[str], n_cpu: int = 16):
     """Scans the downloaded files and processes
 
     Args:
@@ -244,16 +256,21 @@ def scan_files(download_paths: List[str],n_cpu:int=16):
     Returns:
         [type]: [description]
     """
-    processed_data= None
+    processed_data = None
     tqdm.pandas()
     with ProcessPoolExecutor(max_workers=n_cpu) as executor:
-        processed_data = list(tqdm(executor.map(extract_tags_from_gz, download_paths, timeout=None,chunksize=2),
-                            desc=f"Processing {len(download_paths)} examples on {n_cpu} cores",
-                            total=len(download_paths)))
-    dataframe = dd.concat(processed_data)
+        processed_data = list(tqdm(executor.map(extract_tags_from_gz, download_paths, timeout=None, chunksize=2),
+                                   desc=f"Processing {len(download_paths)} examples on {n_cpu} cores",
+                                   total=len(download_paths)))
+    if(len(processed_data) > 1):
+        dataframe = dd.concat(processed_data)
+    else:
+        dataframe = dd.from_pandas(processed_data[0], 1)
     return dataframe
 
 # Main program
+
+
 def run_downloader(args: argparse.ArgumentParser):
     """Main code to download pubmed files, saves to a directory, creates and pickles a dataframe containing authors, abstract, and mesh headings.
 
@@ -270,19 +287,19 @@ def run_downloader(args: argparse.ArgumentParser):
     if (args.num_files):
         download_paths = list(
             glob.glob(os.path.join(args.save_directory, "*.gz")))
-        print(download_paths)
         if(len(download_paths) != 0):
             print("Parsing Files...")
-            data_frame = scan_files(download_paths,args.n_cpu)
+            data_frame = scan_files(download_paths, args.n_cpu)
             os.makedirs("parsed-CSV", exist_ok=True)
-            data_frame.to_csv("parsed-CSV/pubMed.csv")
+            data_frame.to_csv("parsed-CSV/pubMed*.csv")
 
     if (args.should_pickle):
         print("Pickling files...")
         os.makedirs('parquet', exist_ok=True)
-        if (data_frame.empty):
+        if (len(data_frame.columns) == 0):
             try:
-                data_frame = dd.read_csv("parsed-CSV/pubMed.csv")
+                data_frame = dd.read_csv(
+                    "parsed-CSV/pubMed*.csv", dtype={"mid": "string", "pubmed": "float64"})
             except FileNotFoundError:
                 print("Did not find directory/file ./parsed-CSV/pubMed.csv")
                 sys.exit()
